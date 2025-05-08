@@ -205,7 +205,7 @@ proc ::aes::InitTcl {mode key iv} {
 #
 proc ::aes::Reset {Key iv} {
     upvar #0 $Key state
-	if {$state(M) eq cbc} {
+	if {$state(M) eq {cbc}} {
 		if {[binary scan $iv Iu4 state(I)] != 1} {
 			return -code error "invalid initialization vector: must be 16 bytes"
 		}
