@@ -80,6 +80,8 @@ namespace eval ::aes {
 		uint_fast32_t aes_invSubWord(uint_fast32_t word);
 		void aes_mixColumns(uint_fast32_t data[4]);
 		uint_fast32_t aes_RotWord (uint_fast32_t w);
+		int aes_setIv (Tcl_Interp *interp, aes_ctxt *ctxtPtr, char* ivstring
+			,Tcl_Size ivLength);
 		void aes_shiftRows(uint_fast32_t data[4]);
 		void aes_subBytes(uint_fast32_t data[4]);
 		uint_fast32_t aes_SubWord(uint_fast32_t word);
@@ -543,6 +545,34 @@ namespace eval ::aes {
 		}
 
 
+		int aes_setIv (
+			Tcl_Interp *interp, aes_ctxt *ctxtPtr, char* ivstring, Tcl_Size ivlength
+		) {
+			uint_fast32_t ivval;
+			int i, j;
+			if (ivlength == 0) {
+				for (j = 0; j < 4; j++) {
+					ctxtPtr->I[j] = 0;
+				}
+			} else {
+				if (ivlength != 16) {
+					Tcl_SetObjResult(interp, Tcl_NewStringObj(
+						"the length of iv must be 16 bytes", -1));
+					return TCL_ERROR;
+				}
+
+				for (i = 0, j = 0; i < 4; i++ , j+=4) {
+					ivval = ((uint8_t)ivstring[j+0]) << 24;
+					ivval += ((uint8_t)ivstring[j+1]) << 16;
+					ivval += ((uint8_t)ivstring[j+2]) << 8;
+					ivval += ((uint8_t)ivstring[j+3]) << 0;
+					ctxtPtr->I[i] = ivval;
+				}
+			}
+			return TCL_OK;
+		}
+
+
 		uint_fast32_t aes_RotWord (uint_fast32_t w) {
 			return ((w << 8) | ((w >> 24) & 0xff)) & 0xffffffff;
 		}
@@ -623,7 +653,6 @@ namespace eval ::aes {
     critcl::cproc DecryptAccelerated {
 		Tcl_Interp* interp Tcl_Obj* handle Tcl_Obj* data
 	} ok {
-		char *modePtr;
 		unsigned char *bytes;
 		int j, n,status = TCL_OK;
 		Tcl_Size i, len;
@@ -668,8 +697,8 @@ namespace eval ::aes {
 	critcl::cproc InitAccelerated {
 		Tcl_Interp* interp Tcl_Obj* mode Tcl_Obj* keyPtr Tcl_Obj* IPtr
 	} object0 {
-		int i ,j ,modeidx ,Nk ,Nr ,Nb = 4;
-		uint_fast32_t ivval ,ivval2;
+		int i ,modeidx ,Nk ,Nr ,Nb = 4, status;
+		uint_fast32_t ivval2;
 		Tcl_Obj *resultPtr;
 		Tcl_Size ivlength, keylength;
 		Tcl_ObjInternalRep ir;
@@ -701,27 +730,17 @@ namespace eval ::aes {
 
 		ctxtPtr = Tcl_Alloc(sizeof(aes_ctxt));
 		char *ivstring = Tcl_GetBytesFromObj(interp ,IPtr ,&ivlength);
+		if (!ivstring) {
+			Tcl_SetObjResult(interp, Tcl_NewStringObj(
+				"{could not obtain bytes from iv value}", -1));
+			goto failure;
+		}
 		Tcl_GetIndexFromObj(interp, mode, aes_mode_strings, "option", TCL_EXACT, &modeidx);
 		switch (modeidx) {
 			case CBC:
-				if (ivlength == 0) {
-					for (j = 0; j < 4; j++) {
-						ctxtPtr->I[j] = 0;
-					}
-				} else {
-					if (ivlength != 16) {
-						Tcl_SetObjResult(interp, Tcl_NewStringObj(
-							"the length of iv must be 16 bytes", -1));
-						goto failure;
-					}
-
-					for (i = 0, j = 0; i < 4; i++ , j+=4) {
-						ivval = ((uint8_t)ivstring[j+0]) << 24;
-						ivval += ((uint8_t)ivstring[j+1]) << 16;
-						ivval += ((uint8_t)ivstring[j+2]) << 8;
-						ivval += ((uint8_t)ivstring[j+3]) << 0;
-						ctxtPtr->I[i] = ivval;
-					}
+				status = aes_setIv(interp, ctxtPtr, ivstring, ivlength);
+				if (status != TCL_OK) {
+					goto failure;
 				}
 				break;
 			case ECB:
@@ -730,8 +749,8 @@ namespace eval ::aes {
 						"In ECB mod an initialization vector is not used", -1));
 					goto failure;
 				}
-				for (j = 0; j < 4; j++) {
-					ctxtPtr->I[j] = 0;
+				for (i = 0; i < 4; i++) {
+					ctxtPtr->I[i] = 0;
 				}
 				break;
 			default:
@@ -760,6 +779,39 @@ namespace eval ::aes {
 		failure:
 			Tcl_Free(ctxtPtr);
 			return NULL;
+	}
+
+
+	critcl::cproc ResetAccelerated  {
+		Tcl_Interp* interp Tcl_Obj* handle Tcl_Obj* IPtr
+	} ok {
+		int status;
+		aes_ctxt *ctxtPtr;
+		ctxtPtr = aes_fetchCtxt(interp , handle);
+		Tcl_Size ivlength;
+		if (!ctxtPtr) {
+			return TCL_ERROR;
+		}
+		char *ivstring = Tcl_GetBytesFromObj(interp ,IPtr ,&ivlength);
+		if (!ivstring) {
+			Tcl_SetObjResult(interp, Tcl_NewStringObj(
+				"{could not obtain bytes from iv value}", -1));
+			return TCL_ERROR;
+		}
+		char *modePtr;
+		switch (ctxtPtr->mode) {
+			case CBC:
+				status = aes_setIv(interp, ctxtPtr, ivstring, ivlength);
+				if (status != TCL_OK) {
+					return status;
+				}
+				break;
+			default:
+				Tcl_SetObjResult(interp, Tcl_NewStringObj(
+					"{iv is only used in CBS mode}", -1));
+				return TCL_ERROR;
+		}
+		return TCL_OK;
 	}
 
 	critcl::debug symbols

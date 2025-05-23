@@ -114,7 +114,7 @@ proc ::aes::SwitchTo key {
 			rename [namespace current]::Encrypt {}
 		}
 
-		foreach proc {Decrypt Encrypt Final Init} {
+		foreach proc {Decrypt Encrypt Final Init Reset} {
 			catch {rename [namespace current]::$proc {}}
 		}
 
@@ -128,12 +128,14 @@ proc ::aes::SwitchTo key {
                 rename tmp::EncryptAccelerated Encrypt
                 rename tmp::FinalAccelerated Final
                 rename tmp::InitAccelerated Init
+                rename tmp::ResetAccelerated Reset
 			}
 			tcl {
                 rename tmp::DecryptTcl Decrypt
                 rename tmp::EncryptTcl Encrypt
                 rename tmp::FinalTcl Final
                 rename tmp::InitTcl Init
+                rename tmp::ResetTcl Reset
 			}
 		}
 	} finally {
@@ -197,13 +199,13 @@ proc ::aes::InitTcl {mode key iv} {
     return $Key
 }
 
-# aes::Reset --
+# aes::ResetTcl --
 #
 #	Reset the initialization vector for the specified key. This permits the
 #	key to be reused for encryption or decryption without the expense of
 #	re-calculating the key schedule.
 #
-proc ::aes::Reset {Key iv} {
+proc ::aes::ResetTcl {Key iv} {
     upvar #0 $Key state
 	if {$state(M) eq {cbc}} {
 		if {[binary scan $iv Iu4 state(I)] != 1} {
